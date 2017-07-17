@@ -1,0 +1,632 @@
+diff -rcNP ../stockstock/linux-4.4.1/arch/x86/entry/syscalls/syscall_32.tbl ./linux-stock/arch/x86/entry/syscalls/syscall_32.tbl
+*** ../stockstock/linux-4.4.1/arch/x86/entry/syscalls/syscall_32.tbl	2016-01-31 20:29:37.000000000 +0100
+--- ./linux-stock/arch/x86/entry/syscalls/syscall_32.tbl	2016-02-21 02:24:40.532350778 +0100
+***************
+*** 383,385 ****
+--- 383,386 ----
+  374	i386	userfaultfd		sys_userfaultfd
+  375	i386	membarrier		sys_membarrier
+  376	i386	mlock2			sys_mlock2
++ 400 i386  domaci    sys_domaci
+diff -rcNP ../stockstock/linux-4.4.1/arch/x86/entry/syscalls/syscall_64.tbl ./linux-stock/arch/x86/entry/syscalls/syscall_64.tbl
+*** ../stockstock/linux-4.4.1/arch/x86/entry/syscalls/syscall_64.tbl	2016-01-31 20:29:37.000000000 +0100
+--- ./linux-stock/arch/x86/entry/syscalls/syscall_64.tbl	2016-02-21 02:24:39.245680138 +0100
+***************
+*** 332,338 ****
+  323	common	userfaultfd		sys_userfaultfd
+  324	common	membarrier		sys_membarrier
+  325	common	mlock2			sys_mlock2
+! 
+  #
+  # x32-specific system call numbers start at 512 to avoid cache impact
+  # for native 64-bit operation.
+--- 332,338 ----
+  323	common	userfaultfd		sys_userfaultfd
+  324	common	membarrier		sys_membarrier
+  325	common	mlock2			sys_mlock2
+! 400 common  domaci    sys_domaci
+  #
+  # x32-specific system call numbers start at 512 to avoid cache impact
+  # for native 64-bit operation.
+diff -rcNP ../stockstock/linux-4.4.1/include/linux/init_task.h ./linux-stock/include/linux/init_task.h
+*** ../stockstock/linux-4.4.1/include/linux/init_task.h	2016-01-31 20:29:37.000000000 +0100
+--- ./linux-stock/include/linux/init_task.h	2016-02-21 00:04:22.791607202 +0100
+***************
+*** 14,19 ****
+--- 14,20 ----
+  #include <linux/rbtree.h>
+  #include <net/net_namespace.h>
+  #include <linux/sched/rt.h>
++ #include <../kernel/sched/domaci.h>
+  
+  #ifdef CONFIG_SMP
+  # define INIT_PUSHABLE_TASKS(tsk)					\
+***************
+*** 190,195 ****
+--- 191,199 ----
+  #define INIT_TASK(tsk)	\
+  {									\
+  	.state		= 0,						\
++ 	.domaci_time_slice		= DOMACI_SLICE,			\
++ 	.domaci_ticks			= 0,		\
++ 	.domaci_rt		= 0,		\
+  	.stack		= &init_thread_info,				\
+  	.usage		= ATOMIC_INIT(2),				\
+  	.flags		= PF_KTHREAD,					\
+***************
+*** 212,217 ****
+--- 216,222 ----
+  		.time_slice	= RR_TIMESLICE,				\
+  	},								\
+  	.tasks		= LIST_HEAD_INIT(tsk.tasks),			\
++ 	.domaci_list		= LIST_HEAD_INIT(tsk.domaci_list),		\
+  	INIT_PUSHABLE_TASKS(tsk)					\
+  	INIT_CGROUP_SCHED(tsk)						\
+  	.ptraced	= LIST_HEAD_INIT(tsk.ptraced),			\
+diff -rcNP ../stockstock/linux-4.4.1/include/linux/sched.h ./linux-stock/include/linux/sched.h
+*** ../stockstock/linux-4.4.1/include/linux/sched.h	2016-01-31 20:29:37.000000000 +0100
+--- ./linux-stock/include/linux/sched.h	2016-02-19 00:30:10.045741951 +0100
+***************
+*** 1383,1388 ****
+--- 1383,1394 ----
+  	unsigned int flags;	/* per process flags, defined below */
+  	unsigned int ptrace;
+  
++ 	//domaci
++ 	unsigned int domaci_time_slice;
++ 	struct list_head domaci_list;
++ 	unsigned long domaci_ticks;
++ 	unsigned long domaci_rt;
++ 	//
+  #ifdef CONFIG_SMP
+  	struct llist_node wake_entry;
+  	int on_cpu;
+diff -rcNP ../stockstock/linux-4.4.1/include/linux/syscalls.h ./linux-stock/include/linux/syscalls.h
+*** ../stockstock/linux-4.4.1/include/linux/syscalls.h	2016-01-31 20:29:37.000000000 +0100
+--- ./linux-stock/include/linux/syscalls.h	2016-02-20 21:56:29.637809999 +0100
+***************
+*** 889,892 ****
+--- 889,894 ----
+  
+  asmlinkage long sys_mlock2(unsigned long start, size_t len, int flags);
+  
++ asmlinkage long sys_domaci(unsigned long* niz);
++ 
+  #endif
+diff -rcNP ../stockstock/linux-4.4.1/include/uapi/linux/sched.h ./linux-stock/include/uapi/linux/sched.h
+*** ../stockstock/linux-4.4.1/include/uapi/linux/sched.h	2016-01-31 20:29:37.000000000 +0100
+--- ./linux-stock/include/uapi/linux/sched.h	2016-02-18 22:46:12.200981563 +0100
+***************
+*** 40,46 ****
+  /* SCHED_ISO: reserved but not implemented yet */
+  #define SCHED_IDLE		5
+  #define SCHED_DEADLINE		6
+! 
+  /* Can be ORed in to make sure the process is reverted back to SCHED_NORMAL on fork */
+  #define SCHED_RESET_ON_FORK     0x40000000
+  
+--- 40,46 ----
+  /* SCHED_ISO: reserved but not implemented yet */
+  #define SCHED_IDLE		5
+  #define SCHED_DEADLINE		6
+! #define SCHED_DOMACI    10
+  /* Can be ORed in to make sure the process is reverted back to SCHED_NORMAL on fork */
+  #define SCHED_RESET_ON_FORK     0x40000000
+  
+diff -rcNP ../stockstock/linux-4.4.1/kernel/exit.c ./linux-stock/kernel/exit.c
+*** ../stockstock/linux-4.4.1/kernel/exit.c	2016-01-31 20:29:37.000000000 +0100
+--- ./linux-stock/kernel/exit.c	2016-02-20 22:39:39.418363581 +0100
+***************
+*** 59,64 ****
+--- 59,66 ----
+  #include <asm/pgtable.h>
+  #include <asm/mmu_context.h>
+  
++ #include <../kernel/sched/domaci.h>
++ 
+  static void exit_mm(struct task_struct *tsk);
+  
+  static void __unhash_process(struct task_struct *p, bool group_dead)
+***************
+*** 592,597 ****
+--- 594,602 ----
+  	struct task_struct *p, *n;
+  	LIST_HEAD(dead);
+  
++ 	if(tsk->policy == SCHED_DOMACI)
++ 		domaci_update_statistics(tsk);
++ 
+  	write_lock_irq(&tasklist_lock);
+  	forget_original_parent(tsk, &dead);
+  
+diff -rcNP ../stockstock/linux-4.4.1/kernel/fork.c ./linux-stock/kernel/fork.c
+*** ../stockstock/linux-4.4.1/kernel/fork.c	2016-01-31 20:29:37.000000000 +0100
+--- ./linux-stock/kernel/fork.c	2016-02-21 00:04:11.948236322 +0100
+***************
+*** 85,90 ****
+--- 85,92 ----
+  
+  #include <trace/events/sched.h>
+  
++ #include <../kernel/sched/domaci.h>
++ 
+  #define CREATE_TRACE_POINTS
+  #include <trace/events/task.h>
+  
+***************
+*** 1334,1341 ****
+--- 1336,1347 ----
+  		goto bad_fork_cleanup_count;
+  
+  	delayacct_tsk_init(p);	/* Must remain after dup_task_struct() */
++ 	p->domaci_time_slice = DOMACI_SLICE;
++ 	p->domaci_ticks = 0;
++ 	p->domaci_rt = 0;
+  	p->flags &= ~(PF_SUPERPRIV | PF_WQ_WORKER);
+  	p->flags |= PF_FORKNOEXEC;
++ 	INIT_LIST_HEAD(&p->domaci_list);
+  	INIT_LIST_HEAD(&p->children);
+  	INIT_LIST_HEAD(&p->sibling);
+  	rcu_copy_process(p);
+diff -rcNP ../stockstock/linux-4.4.1/kernel/sched/core.c ./linux-stock/kernel/sched/core.c
+*** ../stockstock/linux-4.4.1/kernel/sched/core.c	2016-01-31 20:29:37.000000000 +0100
+--- ./linux-stock/kernel/sched/core.c	2016-02-21 00:06:04.511937604 +0100
+***************
+*** 2228,2233 ****
+--- 2228,2235 ----
+  		return -EAGAIN;
+  	} else if (rt_prio(p->prio)) {
+  		p->sched_class = &rt_sched_class;
++ 	} else if (p->policy == SCHED_DOMACI) {
++ 		p->sched_class = &domaci_sched_class;
+  	} else {
+  		p->sched_class = &fair_sched_class;
+  	}
+***************
+*** 3694,3699 ****
+--- 3696,3703 ----
+  		p->sched_class = &dl_sched_class;
+  	else if (rt_prio(p->prio))
+  		p->sched_class = &rt_sched_class;
++ 	else if (p->policy == SCHED_DOMACI)
++ 		p->sched_class = &domaci_sched_class;
+  	else
+  		p->sched_class = &fair_sched_class;
+  }
+***************
+*** 7430,7435 ****
+--- 7434,7444 ----
+  		init_cfs_rq(&rq->cfs);
+  		init_rt_rq(&rq->rt);
+  		init_dl_rq(&rq->dl);
++ 		//domaci
++ 		rq->dq.nr_running = 0;
++ 		//rq->dq.domaci_list_head = NULL;
++ 		INIT_LIST_HEAD(&rq->dq.domaci_list_head);
++ 		//
+  #ifdef CONFIG_FAIR_GROUP_SCHED
+  		root_task_group.shares = ROOT_TASK_GROUP_LOAD;
+  		INIT_LIST_HEAD(&rq->leaf_cfs_rq_list);
+diff -rcNP ../stockstock/linux-4.4.1/kernel/sched/domaci.c ./linux-stock/kernel/sched/domaci.c
+*** ../stockstock/linux-4.4.1/kernel/sched/domaci.c	1970-01-01 01:00:00.000000000 +0100
+--- ./linux-stock/kernel/sched/domaci.c	2016-02-21 23:39:46.750565795 +0100
+***************
+*** 0 ****
+--- 1,296 ----
++ #include <linux/latencytop.h>
++ #include <linux/sched.h>
++ #include <linux/cpumask.h>
++ #include <linux/cpuidle.h>
++ #include <linux/slab.h>
++ #include <linux/profile.h>
++ #include <linux/interrupt.h>
++ #include <linux/mempolicy.h>
++ #include <linux/migrate.h>
++ #include <linux/task_work.h>
++ #include <linux/time.h>
++ #include <linux/spinlock.h>
++ #include <trace/events/sched.h>
++ #include <linux/jiffies.h>
++ #include "domaci.h"
++ #include "sched.h"
++ 
++ DEFINE_SPINLOCK(domaci_lock);
++ 
++ const struct sched_class domaci_sched_class;
++ 
++ unsigned long domaci_index = 0;
++ unsigned int domaci_pids[PROCESS_BUFF_LEN] = {0};
++ unsigned long domaci_ticks[PROCESS_BUFF_LEN] = {0};
++ unsigned long domaci_rt[PROCESS_BUFF_LEN] = {0};
++ 
++ void domaci_update_statistics(struct task_struct *tsk)
++ {
++ 	spin_lock(&domaci_lock);
++ 	domaci_pids[domaci_index] = tsk->pid;
++ 	domaci_rt[domaci_index] = jiffies - tsk->domaci_rt;
++ 	domaci_ticks[domaci_index] = tsk->domaci_ticks;
++ 
++ 	printk("pid=%d\t rt=%ld\t ticks=%ld\n", domaci_pids[domaci_index], domaci_rt[domaci_index], domaci_ticks[domaci_index]);
++ 
++ 	domaci_index = (domaci_index + 1) % PROCESS_BUFF_LEN;
++ 	spin_unlock(&domaci_lock);
++ }
++ 
++ static void enqueue_node_domaci(struct rq *rq, struct list_head *node)
++ {
++ 	struct list_head *head_node = &rq->dq.domaci_list_head;
++ 
++ 	if(head_node->next != head_node)
++ 	{
++ 		node->prev = head_node->prev;
++ 		node->next = head_node;
++ 		head_node->prev->next = node;
++ 		head_node->prev = node;
++ 	}
++ 	else
++ 	{
++ 		head_node->next = node;
++ 		head_node->prev = node;
++ 		node->next = head_node;
++ 		node->prev = head_node;
++ 	}
++ 
++ }
++ 
++ static void
++ enqueue_task_domaci(struct rq *rq, struct task_struct *p, int flags)
++ {
++ 	struct list_head *head_node = &rq->dq.domaci_list_head;
++ 
++ 	if(!p->domaci_rt)
++ 	{
++ 		p->domaci_rt = jiffies;
++ 		p->domaci_ticks = 0;
++ 	}
++ 
++ 	if(head_node->next != head_node)
++ 	{
++ 		p->domaci_list.prev = head_node->prev;
++ 		p->domaci_list.next = head_node;
++ 		head_node->prev->next = &p->domaci_list;
++ 		head_node->prev = &p->domaci_list;
++ 	}
++ 	else
++ 	{
++ 		head_node->next = &p->domaci_list;
++ 		head_node->prev = &p->domaci_list;
++ 		p->domaci_list.next = head_node;
++ 		p->domaci_list.prev = head_node;
++ 	}
++ 
++ 	rq->dq.nr_running++;
++ 	add_nr_running(rq, 1);
++ }
++ 
++ static void dequeue_node_domaci(struct rq *rq, struct list_head *node)
++ {
++ 	node->prev->next = node->next;
++ 	node->next->prev = node->prev;
++ 
++ 	node->next = NULL;
++ 	node->prev = NULL;
++ }
++ 
++ static void dequeue_task_domaci(struct rq *rq, struct task_struct *p, int flags)
++ {
++ 	p->domaci_list.prev->next = p->domaci_list.next;
++ 	p->domaci_list.next->prev = p->domaci_list.prev;
++ 
++ 	p->domaci_list.next = NULL;
++ 	p->domaci_list.prev = NULL;
++ 
++ 	rq->dq.nr_running--;
++ 	sub_nr_running(rq, 1);
++ }
++ 
++ static void yield_task_domaci(struct rq *rq)
++ {
++ 	//printk("fja yield_task_domaci()\n");
++ 
++ 	if (unlikely(rq->nr_running == 1))
++ 		return;
++ 
++ 	//pretpostavljam da kernel sam poziva schedule() nakon yield, da bi izabrao novi process
++ 
++ 	dequeue_task_domaci(rq, rq->curr, 0);
++ 	enqueue_task_domaci(rq, rq->curr, 0);
++ }
++ 
++ static bool yield_to_task_domaci(struct rq *rq, struct task_struct *p, bool preempt)
++ {
++ 	//printk("fja yield_to_task_domaci()\n");
++ 
++ 	yield_task_domaci(rq);
++ 
++ 	return true;
++ }
++ 
++ static void check_preempt_domaci(struct rq *rq, struct task_struct *p, int wake_flags)
++ {
++ 	//printk("fja check_preempt_domaci()\n");
++ 
++ 	return;
++ }
++ 
++ static struct task_struct *
++ pick_next_task_domaci(struct rq *rq, struct task_struct *prev)
++ {
++ 	struct task_struct *task;
++ 	struct list_head *head_node = &rq->dq.domaci_list_head;
++ 	struct list_head *node;
++ 
++ 	if(head_node->next == head_node)
++ 		 return NULL;
++ 
++ 	task = list_entry(head_node->next, struct task_struct, domaci_list);
++ 
++ 	node = head_node->next;
++ 	dequeue_node_domaci(rq, node);
++ 	enqueue_node_domaci(rq, node);
++ 
++ 	task->domaci_time_slice = DOMACI_SLICE;
++ 	return task;
++ }
++ 
++ /*called before the currently executing task is replaced with another
++ one. Note that pick_next_task and put_prev_task are not equivalent to putting tasks on and off
++ the run queue like enqueue_task and dequeue_task. Instead, they are responsible for giving the
++ CPU to a task and taking it away, respectively. Switching between tasks, however, still requires
++ performing a low-level context switch.*/
++ 
++ static void put_prev_task_domaci(struct rq *rq, struct task_struct *prev)
++ {
++ 	return;
++ }
++ 
++ static int
++ select_task_rq_domaci(struct task_struct *p, int prev_cpu, int sd_flag, int wake_flags)
++ {
++ 	//printk("fja select_task_rq_domaci()\n");
++ 
++ 	return prev_cpu;
++ }
++ 
++ //updates statistics for the current task when the scheduling policy changes.
++ static void set_curr_task_domaci(struct rq *rq)
++ {
++ 	//printk("fja set_curr_task_domaci()\n");
++ 
++ 	return;
++ }
++ 
++ static void task_tick_domaci(struct rq *rq, struct task_struct *p, int queued)
++ {
++ 	p->domaci_time_slice--;
++ 	p->domaci_ticks++;
++ 
++ 	if(p->domaci_time_slice < 1)
++ 		set_tsk_need_resched(p);
++ }
++ 
++ /*
++  * Priority of the task has changed. This may cause
++  * us to initiate a push or pull.
++  */
++ static void
++ prio_changed_domaci(struct rq *rq, struct task_struct *p, int oldprio)
++ {
++ 	//printk("fja prio_changed_domaci\n");
++ 
++ 	return;
++ }
++ 
++ static void switched_to_domaci(struct rq *rq, struct task_struct *p)
++ {
++ 	//printk("fja switched_to_domaci\n");
++ 
++ 	return;
++ }
++ 
++ static unsigned int get_rr_interval_domaci(struct rq *rq, struct task_struct *task)
++ {
++ 	//printk("fja get_rr_interval_domaci\n");
++ 
++ 	return DOMACI_SLICE;
++ }
++ 
++ /*
++  * Update the current task's runtime statistics. Skip current tasks that
++  * are not in our scheduling class.
++  */
++ static void update_curr_domaci(struct rq *rq)
++ {
++ 	//printk("fja update_curr_domaci\n");
++ 
++ 	return;
++ }
++ 
++ asmlinkage long sys_domaci(unsigned long* niz)
++ {
++ 			int i, ret = 0;
++ 			unsigned long podaci[3 * PROCESS_BUFF_LEN] = {0};
++ 
++ 			for(i = 0; i < PROCESS_BUFF_LEN; i++)
++ 			{
++ 				if(domaci_pids[i] > 0)
++ 				{
++ 					podaci[i] = domaci_pids[i];
++ 					podaci[i + PROCESS_BUFF_LEN] = domaci_ticks[i];
++ 					podaci[i + 2*PROCESS_BUFF_LEN] = domaci_rt[i];
++ 				}
++ 				else
++ 					break;
++ 			}
++ 
++ 			if(copy_to_user(niz, podaci, sizeof(long) * 3 * PROCESS_BUFF_LEN))
++ 				ret = -EFAULT;
++ 
++ 			return ret;
++ }
++ 
++ const struct sched_class domaci_sched_class = {
++ 	.next			= &fair_sched_class,
++ 	.enqueue_task		= enqueue_task_domaci,
++ 	.dequeue_task		= dequeue_task_domaci,
++ 	.yield_task		= yield_task_domaci,
++ 	.yield_to_task		= yield_to_task_domaci,
++ 
++ 	.check_preempt_curr	= check_preempt_domaci,
++ 
++ 	.pick_next_task		= pick_next_task_domaci,
++ 	.put_prev_task		= put_prev_task_domaci,
++ 
++ #ifdef CONFIG_SMP
++ 	.select_task_rq		= select_task_rq_domaci,
++ 	.migrate_task_rq	= NULL,
++ 
++ 	.rq_online		= NULL,
++ 	.rq_offline		= NULL,
++ 
++ 	.task_waking		= NULL,
++ 	.task_dead		= NULL,
++ 	.set_cpus_allowed	= set_cpus_allowed_common,
++ #endif
++ 
++ 	.set_curr_task	= set_curr_task_domaci,
++ 	.task_tick		= task_tick_domaci,
++ 	.task_fork		= NULL,
++ 
++ 	.prio_changed		= prio_changed_domaci,
++ 	.switched_from		= NULL,
++ 	.switched_to		= switched_to_domaci,
++ 
++ 	.get_rr_interval	= get_rr_interval_domaci,
++ 
++ 	.update_curr		= update_curr_domaci,
++ 
++ #ifdef CONFIG_FAIR_GROUP_SCHED
++ 	.task_move_group	= NULL,
++ #endif
++ };
+diff -rcNP ../stockstock/linux-4.4.1/kernel/sched/domaci.h ./linux-stock/kernel/sched/domaci.h
+*** ../stockstock/linux-4.4.1/kernel/sched/domaci.h	1970-01-01 01:00:00.000000000 +0100
+--- ./linux-stock/kernel/sched/domaci.h	2016-02-21 02:21:33.988407828 +0100
+***************
+*** 0 ****
+--- 1,11 ----
++ #ifndef _DOMACI_H
++ #define _DOMACI_H_H
++ 
++ #include <uapi/asm-generic/param.h>
++ 
++ #define PROCESS_BUFF_LEN 50
++ #define DOMACI_SLICE HZ/200
++ 
++ void domaci_update_statistics(struct task_struct *tsk);
++ 
++ #endif
+diff -rcNP ../stockstock/linux-4.4.1/kernel/sched/Makefile ./linux-stock/kernel/sched/Makefile
+*** ../stockstock/linux-4.4.1/kernel/sched/Makefile	2016-01-31 20:29:37.000000000 +0100
+--- ./linux-stock/kernel/sched/Makefile	2016-02-18 20:46:02.535146561 +0100
+***************
+*** 12,18 ****
+  endif
+  
+  obj-y += core.o loadavg.o clock.o cputime.o
+! obj-y += idle_task.o fair.o rt.o deadline.o stop_task.o
+  obj-y += wait.o completion.o idle.o
+  obj-$(CONFIG_SMP) += cpupri.o cpudeadline.o
+  obj-$(CONFIG_SCHED_AUTOGROUP) += auto_group.o
+--- 12,18 ----
+  endif
+  
+  obj-y += core.o loadavg.o clock.o cputime.o
+! obj-y += idle_task.o fair.o domaci.o rt.o deadline.o stop_task.o
+  obj-y += wait.o completion.o idle.o
+  obj-$(CONFIG_SMP) += cpupri.o cpudeadline.o
+  obj-$(CONFIG_SCHED_AUTOGROUP) += auto_group.o
+diff -rcNP ../stockstock/linux-4.4.1/kernel/sched/rt.c ./linux-stock/kernel/sched/rt.c
+*** ../stockstock/linux-4.4.1/kernel/sched/rt.c	2016-01-31 20:29:37.000000000 +0100
+--- ./linux-stock/kernel/sched/rt.c	2016-02-20 22:14:15.762608019 +0100
+***************
+*** 2261,2267 ****
+  }
+  
+  const struct sched_class rt_sched_class = {
+! 	.next			= &fair_sched_class,
+  	.enqueue_task		= enqueue_task_rt,
+  	.dequeue_task		= dequeue_task_rt,
+  	.yield_task		= yield_task_rt,
+--- 2261,2267 ----
+  }
+  
+  const struct sched_class rt_sched_class = {
+! 	.next			= &domaci_sched_class,
+  	.enqueue_task		= enqueue_task_rt,
+  	.dequeue_task		= dequeue_task_rt,
+  	.yield_task		= yield_task_rt,
+diff -rcNP ../stockstock/linux-4.4.1/kernel/sched/sched.h ./linux-stock/kernel/sched/sched.h
+*** ../stockstock/linux-4.4.1/kernel/sched/sched.h	2016-01-31 20:29:37.000000000 +0100
+--- ./linux-stock/kernel/sched/sched.h	2016-02-20 01:22:46.708025688 +0100
+***************
+*** 105,111 ****
+  static inline bool valid_policy(int policy)
+  {
+  	return idle_policy(policy) || fair_policy(policy) ||
+! 		rt_policy(policy) || dl_policy(policy);
+  }
+  
+  static inline int task_has_rt_policy(struct task_struct *p)
+--- 105,111 ----
+  static inline bool valid_policy(int policy)
+  {
+  	return idle_policy(policy) || fair_policy(policy) ||
+! 		rt_policy(policy) || dl_policy(policy) || (policy == SCHED_DOMACI);
+  }
+  
+  static inline int task_has_rt_policy(struct task_struct *p)
+***************
+*** 549,554 ****
+--- 549,560 ----
+  
+  #endif /* CONFIG_SMP */
+  
++ struct domaci_rq
++ {
++ 	struct list_head domaci_list_head;
++ 	unsigned long nr_running;
++ };
++ 
+  /*
+   * This is the main, per-CPU runqueue data structure.
+   *
+***************
+*** 587,593 ****
+  	struct cfs_rq cfs;
+  	struct rt_rq rt;
+  	struct dl_rq dl;
+! 
+  #ifdef CONFIG_FAIR_GROUP_SCHED
+  	/* list of leaf cfs_rq on this cpu: */
+  	struct list_head leaf_cfs_rq_list;
+--- 593,601 ----
+  	struct cfs_rq cfs;
+  	struct rt_rq rt;
+  	struct dl_rq dl;
+! 	//domaci
+! 	struct domaci_rq dq;
+! 	//
+  #ifdef CONFIG_FAIR_GROUP_SCHED
+  	/* list of leaf cfs_rq on this cpu: */
+  	struct list_head leaf_cfs_rq_list;
+***************
+*** 1243,1248 ****
+--- 1251,1257 ----
+  extern const struct sched_class dl_sched_class;
+  extern const struct sched_class rt_sched_class;
+  extern const struct sched_class fair_sched_class;
++ extern const struct sched_class domaci_sched_class;
+  extern const struct sched_class idle_sched_class;
+  
+  
